@@ -1,0 +1,116 @@
+import pandas as pd
+import ast
+import matplotlib.pyplot as plt
+import osmnx as ox
+import geopandas as gpd
+from shapely.geometry import Point
+from scipy.stats import shapiro
+from scipy.stats import mannwhitneyu
+
+strain_merged_table_v1 = pd.read_csv("tableau_vff.csv")
+
+## plotting graph with top ten most widespread molecules
+molecule_column = strain_merged_table_v1['MiBIG_names']
+
+all_molecules = []
+for molecules_list in molecule_column:
+    molecules_list = ast.literal_eval(molecules_list)  # Convert string representation to list
+    split_molecules = [molecule.strip() for molecule in molecules_list if molecule]  # Strip leading/trailing spaces and filter out empty values
+    all_molecules.extend(split_molecules)
+
+# Count the occurrences of each molecule
+molecule_counts = pd.Series(all_molecules).value_counts()
+
+# Select the top 10 most widespread molecules
+n = 10
+top_molecules = molecule_counts.head(n)
+
+# Truncate molecule names after the first comma and add "or similar"
+truncated_labels = [label.split(',')[0].strip() + ' or similar' if ',' in label else label for label in top_molecules.index]
+
+# Plot the bar graph
+plt.figure(figsize=(12, 8))  # Increase the figure size for better readability
+ax = top_molecules.plot(kind='bar')
+ax.set_title('Top {} Most Widespread known Molecules in the analyzed samples'.format(n), fontsize = 15)
+ax.set_xlabel('Molecule names', fontsize = 15, fontweight='bold')
+ax.set_ylabel('Number of samples where the molecule is detected', fontsize = 12, fontweight='bold')
+ax.set_xticklabels(truncated_labels, rotation=45, ha='right')  # Rotate x-axis labels by 45 degrees and align them to the right
+ax.tick_params(axis='x', labelsize=15)
+ax.tick_params(axis='y', labelsize=15)
+
+
+plt.tight_layout()  # Adjust spacing between the plot elements
+plt.show()
+
+import pandas as pd
+import ast
+import itertools
+import matplotlib.pyplot as plt
+
+
+
+## to plot all of the molecules
+# Count the occurrences of each molecule
+molecule_counts = pd.Series(all_molecules).value_counts()
+
+# Truncate molecule names after the first comma and add "or similar"
+truncated_labels = [label.split(',')[0].strip() + ' or similar' if ',' in label else label for label in molecule_counts.index]
+
+# Plot the bar graph of molecule frequencies using truncated labels
+plt.figure(figsize=(12, 8))  # Increase the figure size for better readability
+ax = plt.gca()  # Get the current Axes instance
+ax.bar(truncated_labels, molecule_counts)
+ax.set_title('Distribution of Molecule Frequencies')
+ax.set_xlabel('Molecule')
+ax.set_ylabel('Frequency')
+plt.xticks(rotation=90)
+
+plt.tight_layout()  # Adjust spacing between the plot elements
+plt.show()
+
+## analysis of Parisian v non-Parisian samples
+
+# creating Paris boundaries
+# Define the boundary of Paris using its coordinates
+north, south, east, west = 49.0, 48.7, 2.6, 2.2
+# Download the street network within the specified boundary
+G = ox.graph_from_bbox(north, south, east, west, network_type='all')
+# Convert the network to a GeoDataFrame
+paris = ox.geocode_to_gdf('Paris, France')
+# Extract the polygon representing the boundary of Paris
+paris_limites = paris['geometry'].iloc[0]
+
+# extract Parisian samples using the polygon
+geometry = [Point(xy) for xy in zip(strain_merged_table_v1['longitude'], strain_merged_table_v1['latitude'])]
+geo_merged_table = gpd.GeoDataFrame(strain_merged_table_v1, geometry=geometry)
+# Select the points within the Paris boundary using the "within" function of GeoPandas
+points_paris = geo_merged_table[geo_merged_table.within(paris_limites)]
+points_paris.head()
+
+# getting non-Parisian samples
+points_not_paris = pd.merge(strain_merged_table_v1, points_paris, indicator=True, how='left').query('_merge == "left_only"').drop('_merge', axis=1)
+
+# Perform Shapiro-Wilk test for normality for unknown clusters
+_, p_value = shapiro(list(strain_merged_table_v1['Nb_unknown']))
+print(f"Shapiro-Wilk test p-value: {p_value:.20f}")
+
+# Perform Shapiro-Wilk test for normality for known clusters
+_, p_value = shapiro(list(strain_merged_table_v1['Nb_known']))
+print(f"Shapiro-Wilk test p-value: {p_value:.20f}")
+
+# Perform Mann-Whitney test to compare Parisian and non-Parisian samples in the number of unknown clusters
+scores_paris = points_paris["Nb_unknown"]
+scores_not_paris = points_not_paris["Nb_unknown"]
+# Perform Mann-Whitney U test
+statistic, p_value = mannwhitneyu(scores_paris, scores_not_paris, alternative='two-sided')
+print(f"Mann-Whitney U statistic: {statistic:.4f}")
+print(f"P-value: {format(p_value, '.20f')}")
+
+# Perform Mann-Whitney test to compare Parisian and non-Parisian samples in the number of known clusters
+scores_paris = points_paris["Nb_known"]
+scores_not_paris = points_not_paris["Nb_known"]
+# Perform Mann-Whitney U test
+statistic, p_value = mannwhitneyu(scores_paris, scores_not_paris, alternative='two-sided')
+print(f"Mann-Whitney U statistic: {statistic:.4f}")
+print(f"P-value: {format(p_value, '.20f')}")
+
